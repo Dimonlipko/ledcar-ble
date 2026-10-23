@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LEDCAR BLE</title>
+<style>
+  :root {
+    --bg: #f4f4f2; --card: #ffffff; --fg: #1c1c1e; --muted: #6b6b70;
+    --line: #e2e2de; --accent: #2f6fed; --ok: #1f9d55; --warn: #c27c0e; --err: #d64545;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --card: #1e1e21; --fg: #ececee; --muted: #9a9aa2;
+      --line: #2e2e33; --accent: #5b8ef5; --ok: #3ccf7c; --warn: #e5a83b; --err: #f07070;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 580px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px;
+             text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .chip { font-size: 11px; padding: 1px 7px; border-radius: 99px; text-transform: none; letter-spacing: 0;
+          border: 1px solid currentColor; }
+  .chip.ok { color: var(--ok); } .chip.q { color: var(--warn); }
+  .pill { font-size: 13px; padding: 3px 10px; border-radius: 99px; background: var(--line); color: var(--muted); }
+  .pill.on { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+           border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 8px; margin-top: 10px; }
+  .sw { aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); padding: 0; }
+  input[type=color] { width: 56px; height: 40px; border: 1px solid var(--line); border-radius: 8px;
+                      padding: 2px; background: var(--card); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=text], select { font: inherit; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
+                             background: var(--bg); color: var(--fg); min-width: 0; }
+  input.mono, .mono { font-family: var(--mono); font-size: 13px; }
+  .val { font-family: var(--mono); min-width: 3.5ch; text-align: right; color: var(--muted); }
+  label.small { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .quick button { font-size: 12px; padding: 6px 8px; text-align: left; }
+  #log { height: 200px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 8px;
+         font-family: var(--mono); font-size: 12px; white-space: pre-wrap; margin: 0; }
+  .l-tx { color: var(--accent); } .l-rx { color: var(--ok); } .l-err { color: var(--err); } .l-info { color: var(--muted); }
+  .hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+  .warn { color: var(--err); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LEDCAR BLE</h1>
+    <span id="status" class="pill">не підключено</span>
+    <button id="btnConnect" class="primary">Підключити</button>
+    <button id="btnDisconnect" disabled>Відключити</button>
+  </header>
+  <p id="noBt" class="hint warn" hidden>
+    Web Bluetooth недоступний у цьому браузері. Відкрий у Chrome/Edge (Android, macOS, Windows).
+    На iPhone Safari його не підтримує — потрібен браузер Bluefy.
+  </p>
+
+  <section class="card">
+    <h2>Живлення</h2>
+    <div class="row">
+      <button id="btnOn" class="grow">Увімкнути <span class="chip q">?</span></button>
+      <button id="btnOff" class="grow">Вимкнути <span class="chip ok">✓</span></button>
+    </div>
+    <p class="hint">Увімкнення: окремий ON-кадр не спрацював, тому шлеться пачка (5 варіантів ON + колір + яскравість) — саме вона ввімкнула світло на тесті.</p>
+  </section>
+
+  <section class="card">
+    <h2>Колір <span class="chip ok">✓</span></h2>
+    <div class="row">
+      <input type="color" id="color" value="#ffffff">
+      <span id="colorHex" class="mono grow">#FFFFFF</span>
+      <label class="small">формат
+        <select id="variant">
+          <option value="00">7E 00 05 03 … 00 EF</option>
+          <option value="07">7E 07 05 03 … 10 EF</option>
+        </select>
+      </label>
+    </div>
+    <div class="swatches" id="swatches"></div>
+  </section>
+
+  <section class="card">
+    <h2>Яскравість <span class="chip ok">✓ 10%</span> <span class="chip q">? 100%</span></h2>
+    <div class="row">
+      <input type="range" id="bright" min="0" max="100" value="100" class="grow">
+      <span id="brightVal" class="val">100</span>
+    </div>
+    <label class="small"><input type="checkbox" id="bright255"> шкала 0–255 замість 0–100 (перевірка)</label>
+  </section>
+
+  <section class="card">
+    <h2>Ефекти <span class="chip q">? не перевірено</span></h2>
+    <div class="row">
+      <select id="effect" class="grow"></select>
+      <button id="btnEffect">Запустити</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span class="small" style="color:var(--muted)">швидкість</span>
+      <input type="range" id="speed" min="0" max="100" value="50" class="grow">
+      <span id="speedVal" class="val">50</span>
+    </div>
+    <p class="hint">Коди ефектів взято з сімейства ELK-BLEDOM; щоб вийти з ефекту — вибери колір.</p>
+  </section>
+
+  <section class="card">
+    <h2>Сирий кадр</h2>
+    <div class="row">
+      <input type="text" id="raw" class="mono grow" value="7E 00 05 03 FF 00 00 00 EF" spellcheck="false">
+      <button id="btnRaw">Надіслати</button>
+    </div>
+    <div class="quick" id="quick"></div>
+    <label class="small" style="margin-top:10px"><input type="checkbox" id="notify"> слухати notify на FFE1 (на тестах пристрій мовчав)</label>
+  </section>
+
+  <section class="card">
+    <h2>Лог <button id="btnClear" style="margin-left:auto;padding:2px 10px;font-size:12px">очистити</button></h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+'use strict';
+
+const SVC = 0xffe0, CHR = 0xffe1;
+const WRITE_GAP_MS = 30;
+
+const OFF = [0x7e, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0x00, 0xef];
+const ON_VARIANTS = [
+  [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+  [0x7e, 0x07, 0x04, 0xff, 0x00, 0x01, 0x02, 0x01, 0xef],
+  [0x7e, 0x04, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef],
+  [0x7e, 0x07, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0xef],
+  [0x7e, 0x00, 0x04, 0x01, 0x00, 0x00, 0xff, 0x00, 0xef],
+];
+const frameColor = (r, g, b, v) => v === '07'
+  ? [0x7e, 0x07, 0x05, 0x03, r, g, b, 0x10, 0xef]
+  : [0x7e, 0x00, 0x05, 0x03, r, g, b, 0x00, 0xef];
+const frameBright = (p) => [0x7e, 0x00, 0x01, p, 0x00, 0x00, 0x00, 0x00, 0xef];
+const frameEffect = (m) => [0x7e, 0x00, 0x03, m, 0x03, 0x00, 0x00, 0x00, 0xef];
+const frameSpeed = (s) => [0x7e, 0x00, 0x02, s, 0x00, 0x00, 0x00, 0x00, 0xef];
+
+const SWATCHES = ['#ff0000', '#ff5000', '#ffb000', '#ffff00', '#00ff00', '#00ffff',
+                  '#0000ff', '#8000ff', '#ff00ff', '#ff0060', '#ffffff'];
+const EFFECTS = [
+  [0x87, 'Стрибок: R-G-B'], [0x88, 'Стрибок: 7 кольорів'],
+  [0x89, 'Плавно: R-G-B'], [0x8a, 'Плавно: 7 кольорів'],
+  [0x8b, 'Пульс червоний'], [0x8c, 'Пульс зелений'], [0x8d, 'Пульс синій'], [0x8e, 'Пульс жовтий'],
+  [0x8f, 'Пульс блакитний'], [0x90, 'Пульс пурпуровий'], [0x91, 'Пульс білий'],
+  [0x92, 'Плавно: червоний-зелений'], [0x93, 'Плавно: червоний-синій'], [0x94, 'Плавно: зелений-синій'],
+  [0x95, 'Миготіння: 7 кольорів'],
+  [0x96, 'Миготіння червоний'], [0x97, 'Миготіння зелений'], [0x98, 'Миготіння синій'],
+  [0x99, 'Миготіння жовтий'], [0x9a, 'Миготіння блакитний'], [0x9b, 'Миготіння пурпуровий'],
+  [0x9c, 'Миготіння білий'],
+];
+const QUICK = [
+  ['OFF ✓', OFF], ['червоний ✓', frameColor(255, 0, 0, '00')],
+  ['зелений (07) ✓', frameColor(0, 255, 0, '07')], ['яскр. 10% ✓', frameBright(10)],
+  ['ON A ?', ON_VARIANTS[0]], ['ON B ?', ON_VARIANTS[1]],
+  ['ON C ?', ON_VARIANTS[2]], ['ON F0 (ELK) ✗', [0x7e, 0x00, 0x04, 0xf0, 0x00, 0x01, 0xff, 0x00, 0xef]],
+];
+
+const $ = (id) => document.getElementById(id);
+const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let device = null, chr = null, userDisconnect = false;
+
+function log(msg, cls = 'info') {
+  const el = $('log');
+  const t = new Date().toLocaleTimeString('uk-UA', { hour12: false });
+  const line = document.createElement('div');
+  line.className = 'l-' + cls;
+  line.textContent = `${t}  ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(text, on) {
+  $('status').textContent = text;
+  $('status').classList.toggle('on', !!on);
+  $('btnConnect').disabled = !!on;
+  $('btnDisconnect').disabled = !device;
+}
+
+// Single serialized write queue. Jobs with a key coalesce (latest wins) so dragging
+// a slider does not flood the link.
+const queue = [];
+let busy = false;
+
+function send(bytes, { key = null, label = '', after = 0 } = {}) {
+  if (!chr) { log('не підключено', 'err'); return; }
+  const job = { bytes: Uint8Array.from(bytes), key, label, after };
+  if (key) {
+    const i = queue.findIndex((j) => j.key === key);
+    if (i >= 0) { queue[i] = job; return; }
+  }
+  queue.push(job);
+  pump();
+}
+
+async function pump() {
+  if (busy) return;
+  busy = true;
+  while (queue.length) {
+    const j = queue.shift();
+    try {
+      if (!chr) throw new Error('немає з\'єднання');
+      if (chr.writeValueWithoutResponse) await chr.writeValueWithoutResponse(j.bytes);
+      else await chr.writeValue(j.bytes);
+      log(`TX ${hex(j.bytes)}${j.label ? '   ' + j.label : ''}`, 'tx');
+    } catch (e) {
+      log(`помилка запису: ${e.message}`, 'err');
+    }
+    await sleep(Math.max(WRITE_GAP_MS, j.after));
+  }
+  busy = false;
+}
+
+async function connectGatt() {
+  setStatus('підключення…', false);
+  const server = await device.gatt.connect();
+  const svc = await server.getPrimaryService(SVC);
+  chr = await svc.getCharacteristic(CHR);
+  setStatus(device.name || 'підключено', true);
+  log(`підключено: ${device.name} (${device.id})`);
+  if ($('notify').checked) await setNotify(true);
+}
+
+async function connect() {
+  if (!navigator.bluetooth) { $('noBt').hidden = false; return; }
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'LEDCAR' }, { services: [0xffb0] }],
+      optionalServices: [SVC, 0xffb0],
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    userDisconnect = false;
+    await connectGatt();
+  } catch (e) {
+    log(`підключення: ${e.message}`, 'err');
+    setStatus(device ? 'відключено' : 'не підключено', false);
+  }
+}
+
+async function onDisconnected() {
+  chr = null;
+  queue.length = 0;
+  setStatus('відключено', false);
+  log('пристрій відключився', userDisconnect ? 'info' : 'err');
+  if (userDisconnect) return;
+  for (let i = 1; i <= 3; i++) {
+    await sleep(1000 * i);
+    try {
+      log(`перепідключення, спроба ${i}`);
+      await connectGatt();
+      return;
+    } catch (e) {
+      log(`спроба ${i}: ${e.message}`, 'err');
+    }
+  }
+  setStatus('відключено', false);
+}
+
+function disconnect() {
+  userDisconnect = true;
+  if (device && device.gatt.connected) device.gatt.disconnect();
+}
+
+function onNotify(ev) {
+  const v = new Uint8Array(ev.target.value.buffer);
+  log(`RX ${hex(v)}`, 'rx');
+}
+
+async function setNotify(on) {
+  if (!chr) return;
+  try {
+    // On macOS the CCCD write sometimes hangs; don't let it block the UI forever.
+    const op = on ? chr.startNotifications() : chr.stopNotifications();
+    await Promise.race([op, sleep(5000).then(() => { throw new Error('таймаут 5 с'); })]);
+    if (on) chr.addEventListener('characteristicvaluechanged', onNotify);
+    else chr.removeEventListener('characteristicvaluechanged', onNotify);
+    log(`notify ${on ? 'увімкнено' : 'вимкнено'}`);
+  } catch (e) {
+    log(`notify: ${e.message}`, 'err');
+  }
+}
+
+function rgb() {
+  const v = $('color').value;
+  return [1, 3, 5].map((i) => parseInt(v.substr(i, 2), 16));
+}
+
+function brightByte() {
+  const p = +$('bright').value;
+  return $('bright255').checked ? Math.round(p * 2.55) : p;
+}
+
+function sendColor() {
+  const [r, g, b] = rgb();
+  $('colorHex').textContent = $('color').value.toUpperCase();
+  send(frameColor(r, g, b, $('variant').value), { key: 'color', label: 'колір' });
+  remember();
+}
+
+function sendBright() {
+  $('brightVal').textContent = $('bright').value;
+  send(frameBright(brightByte()), { key: 'bright', label: `яскравість ${$('bright').value}%` });
+  remember();
+}
+
+function powerOn() {
+  ON_VARIANTS.forEach((f, i) => send(f, { label: `ON варіант ${'ABCDE'[i]}`, after: 150 }));
+  const [r, g, b] = rgb();
+  send(frameColor(r, g, b, $('variant').value), { label: 'колір', after: 150 });
+  send(frameBright(brightByte()), { label: 'яскравість' });
+}
+
+function remember() {
+  try {
+    localStorage.setItem('ledcar', JSON.stringify({
+      color: $('color').value, bright: $('bright').value, variant: $('variant').value,
+    }));
+  } catch (_) { /* storage unavailable */ }
+}
+
+function restore() {
+  try {
+    const s = JSON.parse(localStorage.getItem('ledcar') || 'null');
+    if (!s) return;
+    $('color').value = s.color; $('bright').value = s.bright; $('variant').value = s.variant;
+    $('colorHex').textContent = s.color.toUpperCase();
+    $('brightVal').textContent = s.bright;
+  } catch (_) { /* ignore */ }
+}
+
+function parseHex(s) {
+  const clean = s.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '');
+  if (!clean.length || clean.length % 2) throw new Error('непарна кількість hex-цифр');
+  return clean.match(/../g).map((h) => parseInt(h, 16));
+}
+
+// UI wiring
+for (const c of SWATCHES) {
+  const b = document.createElement('button');
+  b.className = 'sw';
+  b.style.background = c;
+  b.title = c;
+  b.onclick = () => { $('color').value = c; sendColor(); };
+  $('swatches').appendChild(b);
+}
+for (const [code, name] of EFFECTS) {
+  const o = document.createElement('option');
+  o.value = code;
+  o.textContent = `${name}  (0x${code.toString(16).toUpperCase()})`;
+  $('effect').appendChild(o);
+}
+for (const [name, f] of QUICK) {
+  const b = document.createElement('button');
+  b.innerHTML = `${name}<br><span class="mono" style="color:var(--muted)">${hex(f)}</span>`;
+  b.onclick = () => send(f, { label: name });
+  $('quick').appendChild(b);
+}
+
+$('btnConnect').onclick = connect;
+$('btnDisconnect').onclick = disconnect;
+$('btnOn').onclick = powerOn;
+$('btnOff').onclick = () => send(OFF, { label: 'OFF' });
+$('color').oninput = sendColor;
+$('variant').onchange = () => { sendColor(); };
+$('bright').oninput = sendBright;
+$('bright255').onchange = sendBright;
+$('btnEffect').onclick = () => {
+  const m = +$('effect').value;
+  send(frameEffect(m), { label: $('effect').selectedOptions[0].textContent });
+};
+$('speed').oninput = () => {
+  $('speedVal').textContent = $('speed').value;
+  send(frameSpeed(+$('speed').value), { key: 'speed', label: `швидкість ${$('speed').value}` });
+};
+$('btnRaw').onclick = () => {
+  try { send(parseHex($('raw').value), { label: 'сирий' }); } catch (e) { log(e.message, 'err'); }
+};
+$('raw').onkeydown = (e) => { if (e.key === 'Enter') $('btnRaw').click(); };
+$('notify').onchange = () => setNotify($('notify').checked);
+$('btnClear').onclick = () => { $('log').textContent = ''; };
+
+restore();
+if (!navigator.bluetooth) $('noBt').hidden = false;
+log('готово. Закрий інші з\'єднання з LEDCAR (телефон) — пристрій тримає лише одне.');
+</script>
+</body>
+</html>
