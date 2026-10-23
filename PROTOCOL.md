@@ -25,4 +25,4 @@
 У вимкненому стані кадри кольору ігноруються.
 
 ## Інструменти
-- `index.html` — Web Bluetooth панель (Chrome/Edge), https://rgb.electricengines.com.ua
+- `index.html` — Web Bluetooth панель (Chrome/Edge), https://www.electricengines.com.ua/ledcar-ble/
